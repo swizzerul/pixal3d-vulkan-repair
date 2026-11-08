@@ -15,3 +15,7 @@ Local verification must separately demonstrate both cache-writer paths, represen
 The Vulkan SDK is acquired and checked in the ephemeral runner only. Runtime bundles do not include the compiler, SDK, driver or Microsoft redistributable installer. A compatible system Vulkan loader/driver and Microsoft C++ runtime are runtime prerequisites.
 
 See `NOTICE.md` and the bundled upstream notices for licensing and attribution.
+
+Campaign status: both authorized executions failed; no runtime bundles or releases exist. The first run stopped at patch hashes because Windows checkout converted line endings. The corrected checkout passed those checks; the second run reached baseline compilation and stopped because the upstream NAF CPU test did not enable MSVC's `M_PI` constants. A test-only `_USE_MATH_DEFINES` definition is now prepared, but has **not been built**. No further dispatch is authorized by this campaign.
+
+`drivers/cache_regression.py` is a prepared, **unexecuted** generic local test driver. It requires an external guard and exact bundle manifest, uses one graph per scratch writer, and records represented-input arithmetic separately from dispatch-path coverage. It does not grant permission to run a campaign or establish that either repair works.
