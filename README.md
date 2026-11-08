@@ -1,5 +1,9 @@
 # Experimental Pixal3D Vulkan repair build
 
+Current result (2026-11-08): complete baseline and candidate bundles were published by successful run [42506628576](https://github.com/swizzerul/pixal3d-vulkan-repair/actions/runs/42506628576), built from `4dad3ad815e7c1fe0d4e4b1e18490a99e6487a25`. [Experimental release](https://github.com/swizzerul/pixal3d-vulkan-repair/releases/tag/experimental-42506628576). Startup, CPU arithmetic and upstream NAF CPU self-tests passed for both variants. Earlier failure and authorization entries below are historical; stop-after-success applies, so no further workflow is planned.
+
+Focused local verification subsequently reproduced both scratch-writer failures on this baseline and passed the candidate using the same fixtures and independent references, with actual dispatch and scratch-buffer coverage. The represented-input convolution screen and native guard integration passed. Genuine DINO1024 and affected NAF S1024/T512 each completed once with finite outputs; this does not establish full-model numerical parity. The S1024/T1024 texture graph still contains five unsupported 4 GiB tensors on a device with a 2 GiB individual-buffer limit. Full generation was not started. No model inputs, outputs or private test logs are published here.
+
 This tools-only repository builds a same-toolchain unpatched control and a candidate containing two narrowly scoped repairs: actual-shape NAF convolution routing and Vulkan conversion-cache invalidation after shared scratch-buffer writers. It is not a production release or a claim of numerical equivalence.
 
 Public sources are pinned in `pins.json`. The baseline and candidate use identical diagnostic logging and additive test-driver integration. Only the candidate receives the two patches. Complete bundles must remain separate; do not swap individual DLLs into another installation.
