@@ -1,0 +1,17 @@
+# Experimental Pixal3D Vulkan repair build
+
+This tools-only repository builds a same-toolchain unpatched control and a candidate containing two narrowly scoped repairs: actual-shape NAF convolution routing and Vulkan conversion-cache invalidation after shared scratch-buffer writers. It is not a production release or a claim of numerical equivalence.
+
+Public sources are pinned in `pins.json`. The baseline and candidate use identical diagnostic logging and additive test-driver integration. Only the candidate receives the two patches. Complete bundles must remain separate; do not swap individual DLLs into another installation.
+
+The workflow is manual only, uses the standard `windows-2022` runner, and runs no model inference. It downloads no images, weights or private fixtures. It publishes prerelease bundles, checksums and a build manifest using the repository-scoped job token. No Actions artifacts, persistent cache, Packages or LFS are used.
+
+The bounded campaign permits one initial execution and at most one diagnosed, corrected build execution: 120 minutes per execution, 180 aggregate. The dispatch input must fit the remaining aggregate allowance. A cancelled or failed execution still consumes its elapsed time. No unchanged rerun is permitted.
+
+`repair-probe --cpu` performs a tiny CPU arithmetic check and prints the compiled tensor ABI and operation enumeration. `repair-probe --route` builds synthetic NAF metadata without allocating or computing the represented graph. `repair-stage` exposes only the pinned image preprocessing, DINO and NAF stages and accepts local paths. These tools do not establish Vulkan correctness by compiling successfully.
+
+Local verification must separately demonstrate both cache-writer paths, represented-input convolution accuracy, actual-shape support, synchronous native guard coverage and genuine affected-stage execution before model generation. Direct convolution can use different accumulation precision. Finite output alone does not prove numerical parity.
+
+The Vulkan SDK is acquired and checked in the ephemeral runner only. Runtime bundles do not include the compiler, SDK, driver or Microsoft redistributable installer. A compatible system Vulkan loader/driver and Microsoft C++ runtime are runtime prerequisites.
+
+See `NOTICE.md` and the bundled upstream notices for licensing and attribution.

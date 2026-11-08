@@ -1,0 +1,46 @@
+--- a/src/naf_gpu.cpp
++++ b/src/naf_gpu.cpp
+@@ -75,8 +75,22 @@
+     GT* w = m.get(name + ".weight");        // ggml ne = [K,K,Ci,Co] (torch [Co,Ci,K,K] reversed)
+     const int K = (int)w->ne[0];
+     GT* xin = reflect_pad2d(c, x, K / 2, o);
+-    GT* y = o.direct_conv ? ggml_conv_2d_direct(c, w, xin, 1, 1, 0, 0, 1, 1)
+-                          : ggml_conv_2d(c, w, xin, 1, 1, 0, 0, 1, 1);
++    GT* y = nullptr;
++    // Probe the actual padded shape, not naf_ggml_opts_for's 16x16 capability toy.
++    // Keep supported im2col paths (including LR) and non-Vulkan behavior unchanged.
++    const bool is_vulkan = m.backend && strncmp(ggml_backend_name(m.backend), "Vulkan", 6) == 0;
++    if (!o.direct_conv && is_vulkan && K == 3 && w->type == GGML_TYPE_F16 && xin->type == GGML_TYPE_F32) {
++        ggml_backend_dev_t dev = ggml_backend_get_device(m.backend);
++        GT* col = ggml_im2col(c, w, xin, 1, 1, 0, 0, 1, 1, true, w->type);
++        if (dev && !ggml_backend_dev_supports_op(dev, col)) {
++            GT* direct = ggml_conv_2d_direct(c, w, xin, 1, 1, 0, 0, 1, 1);
++            if (ggml_backend_dev_supports_op(dev, direct)) y = direct;
++            // Otherwise retain the original graph; the strict full-graph check
++            // below rejects it before allocation. Never silently fall back to CPU.
++        }
++    }
++    if (!y) y = o.direct_conv ? ggml_conv_2d_direct(c, w, xin, 1, 1, 0, 0, 1, 1)
++                             : ggml_conv_2d(c, w, xin, 1, 1, 0, 0, 1, 1);
+     GT* b = m.get(name + ".bias");
+     return ggml_add(c, y, ggml_reshape_4d(c, b, 1, 1, b->ne[0], 1));
+ }
+@@ -377,6 +391,18 @@
+     const std::string tag = "naf_ggml_S" + std::to_string(S) + "_T" + std::to_string(T);
+     trellis_graph_dump(tag.c_str(), g);
+     check_graph_supported(naf.backend, g, tag.c_str());
++    // The existing diagnostic throws only for WebGPU. Vulkan must also reject
++    // unsupported actual nodes before allocating this complete NAF graph.
++    if (strncmp(ggml_backend_name(naf.backend), "Vulkan", 6) == 0) {
++        ggml_backend_dev_t dev = ggml_backend_get_device(naf.backend);
++        bool supported = dev != nullptr;
++        for (int i = 0; supported && i < ggml_graph_n_nodes(g); ++i)
++            supported = ggml_backend_dev_supports_op(dev, ggml_graph_node(g, i));
++        if (!supported) {
++            ggml_free(c);
++            throw std::runtime_error("naf_upsample_ggml: unsupported Vulkan graph before allocation");
++        }
++    }
+
+     ggml_gallocr_t alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(naf.backend));
+     if (!ggml_gallocr_alloc_graph(alloc, g)) throw std::runtime_error("naf_upsample_ggml: graph alloc failed");

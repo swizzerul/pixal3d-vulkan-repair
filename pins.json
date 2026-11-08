@@ -1,0 +1,11 @@
+{
+  "native": {"repository": "raven38/pixal3d.cpp", "commit": "add368c651e91b5de942b0700e4352d52912865e"},
+  "ggml": {"repository": "pwilkin/ggml", "commit": "737e88f25d4f62254f3b7a726fd9663036cc94da"},
+  "spirv": {"repository": "KhronosGroup/SPIRV-Headers", "commit": "29981f65241605e08b0ede4cfeb999fe3b723c6a"},
+  "webp": {"repository": "webmproject/libwebp", "commit": "a4d7a715337ded4451fec90ff8ce79728e04126c"},
+  "sdk": {"version": "1.4.357.0", "file": "vulkansdk-windows-X64-1.4.357.0.exe", "bytes": 287971024, "sha256": "81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d"},
+  "patches": {
+    "pixal3d-add368c-naf-vulkan-direct-conv.patch": "18693a320598125b6633b1b6facf7765c46b642948929de11822b89bae102d86",
+    "ggml-737e88f-vulkan-prealloc-y-invalidation.patch": "c6f30dac9c37e5ec3e1637b593e973c68aa87533444618c9363657905b2d13c8"
+  }
+}

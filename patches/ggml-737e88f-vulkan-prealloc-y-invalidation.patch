@@ -1,0 +1,26 @@
+--- a/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -10096,6 +10096,12 @@
+     vk_subbuffer mask_buf = mask ? ggml_vk_tensor_subbuffer(ctx, mask) : q_buf;
+     vk_subbuffer sinks_buf = sinks ? ggml_vk_tensor_subbuffer(ctx, sinks) : q_buf;
+     vk_subbuffer mask_opt_buf = use_mask_opt ? ggml_vk_subbuffer(ctx, ctx->prealloc_y, 0) : q_buf;
++    if (use_mask_opt) {
++        // Mask optimization overwrites the cached converted matmul input.
++        ctx->prealloc_y_last_pipeline_used = nullptr;
++        ctx->prealloc_y_last_tensor_used = nullptr;
++        ctx->prealloc_y_last_decode_vector_staging = false;
++    }
+
+     uint32_t mask_n_head_log2 = ((sinks != nullptr) << 24) | n_head_log2;
+
+@@ -12300,5 +12306,10 @@
+
+         vk_subbuffer buf_x = { ctx->prealloc_x, 0, tmp_size };
+         vk_subbuffer buf_y = { ctx->prealloc_y, 0, tmp_size };
++
++        // Large-softmax partial results overwrite the converted matmul input.
++        ctx->prealloc_y_last_pipeline_used = nullptr;
++        ctx->prealloc_y_last_tensor_used = nullptr;
++        ctx->prealloc_y_last_decode_vector_staging = false;
+
+         std::array<uint32_t, 3> elements = { num_wgs, nrows_x, 1 };
