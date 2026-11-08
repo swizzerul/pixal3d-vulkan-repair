@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: Remaining authorized run limit (maximum 120, aggregate 180)
+        description: Remaining authorized run limit (maximum 60, aggregate 180)
         required: true
-        default: '120'
+        default: '60'
         type: string
 permissions:
   contents: write
@@ -25,7 +25,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $minutes = [int]'${{ inputs.minutes }}'
-          if ($minutes -lt 1 -or $minutes -gt 120) { throw 'Invalid bounded timeout' }
+          if ($minutes -lt 1 -or $minutes -gt 60) { throw 'Invalid bounded timeout' }
           git init .
           if ($LASTEXITCODE) { throw 'git init failed' }
           git config core.autocrlf false

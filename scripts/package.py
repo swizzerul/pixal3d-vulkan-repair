@@ -42,11 +42,15 @@ for name in ['NOTICE.md','LICENSE','pins.json']:shutil.copyfile(tools/name,out/n
 imports={}
 for name in expected:
     imports[name]=run(['dumpbin','/DEPENDENTS',str(out/name)])
-run([str(out/'trellis-cli.exe'),'--help'],out)
-run([str(out/'repair-stage.exe'),'--help'],out)
+checks={}
+checks['cli_help']=run([str(out/'trellis-cli.exe'),'--help'],out)
+checks['stage_help']=run([str(out/'repair-stage.exe'),'--help'],out)
 abi=run([str(out/'repair-probe.exe'),'--cpu'],out)
-run([str(out/'trellis-test-naf.exe'),'--selftest'],out)
+checks['cpu_probe']=abi
+checks['naf_cpu_selftest']=run([str(out/'trellis-test-naf.exe'),'--selftest'],out)
 manifest={'variant':variant,'source_commit':json.loads((tools/'pins.json').read_text())['native']['commit'],'patches_applied':[] if variant=='baseline' else list(json.loads((tools/'pins.json').read_text())['patches']), 'tools_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'files':{str(p.relative_to(out)).replace('\\','/'):{'sha256':sha(p),'bytes':p.stat().st_size} for p in sorted(out.rglob('*')) if p.is_file()},'imports':imports,'cpu_probe_abi':abi,'configuration':json.loads((work/'records/configure-options.json').read_text(encoding='utf-8-sig')),'toolchain':json.loads((work/'records/toolchain.json').read_text(encoding='utf-8-sig'))}
+manifest['startup_cpu_checks']={'exit_codes':{k:0 for k in checks},'output':checks}
+manifest['naf_compile_command']=json.loads((work/'records/naf-compile-command.json').read_text(encoding='utf-8-sig'))
 write(out/'bundle-manifest.json',manifest)
 archive=release/(variant+'-windows-x64.zip')
 with zipfile.ZipFile(archive,'x',zipfile.ZIP_DEFLATED,compresslevel=6) as z:

@@ -41,6 +41,10 @@ $toolchain = [ordered]@{
     cmake=(cmake --version | Select-Object -First 1); ninja=$ninja;
     compatibility_review='VS2022 v143 / MSVC14.44 and SDK26100 retained; servicing versions recorded; Ninja >=1.12.1 is a build executor, not runtime arithmetic.'
 }
+if (($env:CL+' '+$env:_CL_) -match '(?i)[/-]Zc:cmath') { throw 'Incompatible injected math-header compiler option' }
+Invoke-Checked cl @('/nologo','/std:c++17','/MD','/EHsc','/D_USE_MATH_DEFINES',"$tools/drivers/math_sanity.cpp",('/Fo'+$work+'/math-sanity.obj'),('/Fe'+$work+'/math-sanity.exe'))
+Invoke-Checked "$work/math-sanity.exe" @()
+$toolchain.math_sanity='PASS: command-line _USE_MATH_DEFINES precedes cmath; no /Zc:cmath in injected compiler options'
 $metadata = Invoke-RestMethod -Uri 'https://vulkan.lunarg.com/sdk/files.json'
 $sdkmeta = @($metadata.windows.($pins.sdk.version).files | Where-Object { $_.file_name -eq $pins.sdk.file })
 if ($sdkmeta.Count -ne 1 -or $sdkmeta[0].sha -ne $pins.sdk.sha256 -or $sdkmeta[0].size -ne $pins.sdk.bytes) { throw 'Publisher SDK metadata differs from reviewed identity' }
@@ -84,7 +88,7 @@ Invoke-Checked cmake @('--install',"$work/spirv-build")
 # Additive integration only; upstream algorithm sources remain unmodified in the control.
 Add-Content -LiteralPath "$native/CMakeLists.txt" -Value ('`nadd_subdirectory("'+($tools.Replace('\','/'))+'/drivers" "${CMAKE_BINARY_DIR}/repair-drivers")').Replace('`n',"`n") -Encoding utf8
 $build=Join-Path $work 'build'
-$options=@('-S',$native,'-B',$build,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=ON',
+$options=@('-S',$native,'-B',$build,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=ON','-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
     '-DGGML_NATIVE=OFF','-DGGML_CPU=ON','-DGGML_VULKAN=ON','-DGGML_CUDA=OFF','-DGGML_HIP=OFF','-DGGML_METAL=OFF',
     '-DGGML_SYCL=OFF','-DGGML_WEBGPU=OFF','-DGGML_RPC=OFF','-DGGML_OPENMP=OFF','-DGGML_BUILD_TESTS=OFF','-DGGML_BUILD_EXAMPLES=OFF',
     '-DGGML_VULKAN_DEBUG=ON','-DPIXAL3D_GGML_PATCHES=OFF','-DTRELLIS_WEBP=ON',
@@ -93,6 +97,11 @@ $options=@('-S',$native,'-B',$build,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-
     "-DVulkan_LIBRARY=$sdkroot/Lib/vulkan-1.lib","-DVulkan_GLSLC_EXECUTABLE=$sdkroot/Bin/glslc.exe")
 $options | ConvertTo-Json | Set-Content -LiteralPath "$records/configure-options.json" -Encoding utf8
 Invoke-Checked cmake $options
+$commands=Get-Content -LiteralPath "$build/compile_commands.json" -Raw | ConvertFrom-Json
+$nafCommands=@($commands | Where-Object { $_.file -match '[/\\]test_naf\.cpp$' })
+if ($nafCommands.Count -ne 1 -or $nafCommands[0].command -notmatch '[/-]D_USE_MATH_DEFINES' -or $nafCommands[0].command -match '(?i)[/-]Zc:cmath') { throw 'NAF test compiler definition contract failed' }
+$nafCommands[0] | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$records/naf-compile-command.json" -Encoding utf8
+Write-Host ('Verified NAF compiler command: '+$nafCommands[0].command)
 $targets=@('trellis-cli','trellis-server','repair-stage','repair-probe','trellis-test-naf')
 foreach($variant in @('baseline','candidate')) {
     if($variant -eq 'candidate') {
@@ -101,7 +110,7 @@ foreach($variant in @('baseline','candidate')) {
         Invoke-Checked git @('-C',$native,'apply',"$tools/patches/pixal3d-add368c-naf-vulkan-direct-conv.patch")
         Invoke-Checked git @('-C',"$native/thirdparty/ggml",'apply',"$tools/patches/ggml-737e88f-vulkan-prealloc-y-invalidation.patch")
     }
-    Invoke-Checked cmake (@('--build',$build,'--parallel','4','--target')+$targets)
+    Invoke-Checked cmake (@('--build',$build,'--verbose','--parallel','4','--target')+$targets)
     Invoke-Checked python @("$tools/scripts/package.py",$variant,$work,$tools)
 }
 Invoke-Checked python @("$tools/scripts/package.py",'finish',$work,$tools)
