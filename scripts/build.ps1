@@ -67,6 +67,25 @@ $toolchain.sdk_signer=$signature.SignerCertificate.Subject
 $toolchain.sdk_certificate_thumbprint=$signature.SignerCertificate.Thumbprint
 $toolchain.sdk_exit=$process.ExitCode
 $toolchain.shader_compiler=(& "$sdkroot/Bin/glslc.exe" --version | Out-String)
+# The SDK provides import libraries, while the Windows loader is a separate
+# same-version publisher component. CPU/help executables still import it.
+$loadermeta=@($metadata.windows.($pins.runner_loader.version).files | Where-Object { $_.file_name -eq $pins.runner_loader.file })
+if ($loadermeta.Count -ne 1 -or $loadermeta[0].sha -ne $pins.runner_loader.sha256 -or $loadermeta[0].size -ne $pins.runner_loader.bytes) { throw 'Runner loader publisher metadata differs' }
+$loaderzip=Join-Path $work $pins.runner_loader.file
+Invoke-WebRequest -Uri ('https://sdk.lunarg.com/sdk/download/'+$pins.runner_loader.version+'/windows/'+$pins.runner_loader.file) -OutFile $loaderzip
+if ((Get-Item -LiteralPath $loaderzip).Length -ne $pins.runner_loader.bytes -or (Get-FileHash -LiteralPath $loaderzip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.runner_loader.sha256) { throw 'Runner loader payload identity mismatch' }
+$loaderroot=Join-Path $work 'runner-loader'
+Expand-Archive -LiteralPath $loaderzip -DestinationPath $loaderroot
+$loaders=@(Get-ChildItem -LiteralPath $loaderroot -Filter vulkan-1.dll -Recurse -File | Where-Object {
+    $pe=[IO.File]::ReadAllBytes($_.FullName);$peOffset=[BitConverter]::ToInt32($pe,60)
+    [BitConverter]::ToUInt32($pe,$peOffset) -eq 0x4550 -and [BitConverter]::ToUInt16($pe,$peOffset+4) -eq 0x8664
+})
+if ($loaders.Count -ne 1) { throw 'Exactly one official x64 loader required' }
+$loader=$loaders[0];$loaderSignature=Get-AuthenticodeSignature -LiteralPath $loader.FullName
+if ($loaderSignature.Status -ne 'Valid' -or $loaderSignature.SignerCertificate.Subject -notmatch 'LunarG') { throw 'Runner loader signature rejected' }
+$env:Path=$loader.DirectoryName+';'+$env:Path
+Invoke-Checked python @('-c','import ctypes,sys; [ctypes.WinDLL(p) for p in sys.argv[1:]]; print("Runner DLL prerequisite load PASS")',$loader.FullName,'msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')
+$toolchain.runner_loader=[ordered]@{archive_sha256=$pins.runner_loader.sha256;dll_sha256=(Get-FileHash -LiteralPath $loader.FullName -Algorithm SHA256).Hash.ToLowerInvariant();version=$loader.VersionInfo.FileVersion;signer=$loaderSignature.SignerCertificate.Subject;scope='process PATH only; not bundled; no Vulkan/model compute'}
 $toolchain | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$records/toolchain.json" -Encoding utf8
 Write-Host ($toolchain | ConvertTo-Json -Depth 8)
 Write-Host ($sdkmeta[0] | ConvertTo-Json -Depth 8)
