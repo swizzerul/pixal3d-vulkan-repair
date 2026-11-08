@@ -34,7 +34,7 @@ jobs:
           if ($LASTEXITCODE) { throw 'exact tools fetch failed' }
           git checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -or (git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'tools commit mismatch' }
-      - name: Acquire pinned public dependencies and build both variants
+      - name: Acquire pinned public dependencies and build complete candidate
         run: ./scripts/build.ps1
       - name: Publish compact experimental bundles
         env:

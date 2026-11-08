@@ -121,16 +121,14 @@ $nafCommands=@($commands | Where-Object { $_.file -match '[/\\]test_naf\.cpp$' }
 if ($nafCommands.Count -ne 1 -or $nafCommands[0].command -notmatch '[/-]D_USE_MATH_DEFINES' -or $nafCommands[0].command -match '(?i)[/-]Zc:cmath') { throw 'NAF test compiler definition contract failed' }
 $nafCommands[0] | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$records/naf-compile-command.json" -Encoding utf8
 Write-Host ('Verified NAF compiler command: '+$nafCommands[0].command)
-$targets=@('trellis-cli','trellis-server','repair-stage','repair-probe','trellis-test-naf')
-foreach($variant in @('baseline','candidate')) {
-    if($variant -eq 'candidate') {
-        Invoke-Checked git @('-C',$native,'apply','--check',"$tools/patches/pixal3d-add368c-naf-vulkan-direct-conv.patch")
-        Invoke-Checked git @('-C',"$native/thirdparty/ggml",'apply','--check',"$tools/patches/ggml-737e88f-vulkan-prealloc-y-invalidation.patch")
-        Invoke-Checked git @('-C',$native,'apply',"$tools/patches/pixal3d-add368c-naf-vulkan-direct-conv.patch")
-        Invoke-Checked git @('-C',"$native/thirdparty/ggml",'apply',"$tools/patches/ggml-737e88f-vulkan-prealloc-y-invalidation.patch")
-    }
-    Invoke-Checked cmake (@('--build',$build,'--verbose','--parallel','4','--target')+$targets)
-    Invoke-Checked python @("$tools/scripts/package.py",$variant,$work,$tools)
+$targets=@('trellis-cli','trellis-server','repair-stage','repair-probe','repair-conditioning','trellis-test-naf')
+# Reuse the previously verified complete two-patch control; build only the new candidate.
+foreach($patch in $pins.patches.psobject.Properties) {
+    $target = if($patch.Name.StartsWith('ggml-')) { "$native/thirdparty/ggml" } else { $native }
+    Invoke-Checked git @('-C',$target,'apply','--check',"$tools/patches/$($patch.Name)")
+    Invoke-Checked git @('-C',$target,'apply',"$tools/patches/$($patch.Name)")
 }
+Invoke-Checked cmake (@('--build',$build,'--verbose','--parallel','4','--target')+$targets)
+Invoke-Checked python @("$tools/scripts/package.py",'candidate',$work,$tools)
 Invoke-Checked python @("$tools/scripts/package.py",'finish',$work,$tools)
-Write-Host 'Both complete bundles built and CPU/startup checks passed. Vulkan/model execution NOT RUN on runner.'
+Write-Host 'Complete candidate built and mandatory CPU/startup/geometry-writer checks passed. New local Vulkan/model gates NOT RUN on runner.'

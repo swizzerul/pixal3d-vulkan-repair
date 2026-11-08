@@ -1,0 +1,235 @@
+--- /dev/null
++++ b/include/cond_trace.h
+@@ -0,0 +1,24 @@
++// Fixed public diagnostic ABI. It observes stage provenance; it never supplies values.
++#pragma once
++#include <cstdint>
++#include <initializer_list>
++#if defined(_WIN32)
++#define TRELLIS_COND_EXPORT __declspec(dllexport)
++#define TRELLIS_COND_NOINLINE __declspec(noinline)
++#else
++#define TRELLIS_COND_EXPORT __attribute__((visibility("default")))
++#define TRELLIS_COND_NOINLINE __attribute__((noinline))
++#endif
++extern "C" TRELLIS_COND_EXPORT TRELLIS_COND_NOINLINE
++void trellis_cond_event(int kind, const void* a, const void* b, const int64_t values[8]);
++namespace trellis {
++// Values: BEGIN S,R,T,V,N,chunk,rows,blocks; GRAPH stage,view,start,count.
++// Persistent slots: pooled,Q,K,V,global,LR,HR. Event identifiers are versioned here.
++enum CondEvent { COND_COORDS=0, COND_BEGIN=1, COND_PERSISTENT=2,
++    COND_GRAPH_BEGIN=3, COND_GRAPH_DONE=4, COND_END=5, COND_CHUNK_SKIP=6,
++    COND_SELECTION=7, COND_TAPS=8, COND_VIEW_DONE=9 };
++inline void cond_trace(int kind,const void* a,const void* b,std::initializer_list<int64_t> fields) {
++    int64_t values[8]{};int i=0;for(int64_t value:fields){if(i<8)values[i++]=value;}
++    trellis_cond_event(kind,a,b,values);
++}
++}
+--- a/src/pixal3d_cond_gpu.cpp
++++ b/src/pixal3d_cond_gpu.cpp
+@@ -12,6 +12,7 @@
+ // The accumulators live in a small persistent backend buffer; every per-view graph is
+ // allocated with its own gallocr and freed before the next view.
+ #include "pixal3d_cond.h"
++#include "cond_trace.h"
+ #include "dinov3.h"
+ #include "naf.h"
+ #include "proj_grid.h"
+@@ -27,6 +28,13 @@
+ #include <cstring>
+ #include <stdexcept>
+ #include <string>
++
++// Volatile observation prevents whole-program removal of this diagnostic boundary.
++extern "C" TRELLIS_COND_EXPORT TRELLIS_COND_NOINLINE
++void trellis_cond_event(int kind,const void* a,const void* b,const int64_t values[8]) {
++    static volatile uintptr_t observed = 0;
++    observed = uintptr_t(a) ^ uintptr_t(b) ^ uintptr_t(values[0]) ^ uintptr_t(kind);
++}
+ 
+ namespace trellis {
+ using T = ggml_tensor;
+@@ -201,6 +209,8 @@
+     int chunk_blk = prm.naf_block_chunk > 0 ? prm.naf_block_chunk
+                   : (int)std::max<int64_t>(1, (int64_t)256 * 1024 * 1024 / ((int64_t)d2 * D * 4));
+     chunk_blk = std::min(chunk_blk, nblk);
++    cond_trace(COND_BEGIN,dinov3.backend,naf.backend,{S,R,Tn,V,NT,chunk_blk,nbrow,nblk});
++    cond_trace(COND_SELECTION,sel.data(),nullptr,{NT});
+ 
+     // 永続バッファ: 大物は1本ずつ別バッファにする（1本が maxBufferSize を超えないように）。
+     auto alloc_one = [&](ggml_context*& ctx, T*& t, int64_t n0, int64_t n1) {
+@@ -224,6 +234,12 @@
+     ggml_backend_buffer_t bs = ggml_backend_alloc_ctx_tensors(cs, dinov3.backend);
+     if (!bs) throw std::runtime_error("pixal3d_cond_slat_gpu: accumulator alloc failed");
+     ggml_backend_buffer_clear(bs, 0);
++    T* persistent[] = {P_pooled,Q_bm,K_rows,V_rows,acc_glob,acc_lr,acc_hr};
++    const char* persistent_names[] = {"cond.pooled","cond.q_bm","cond.k_rows","cond.v_rows","cond.global","cond.lr","cond.hr"};
++    for(int slot=0;slot<7;++slot) {
++        ggml_set_name(persistent[slot],persistent_names[slot]);
++        cond_trace(COND_PERSISTENT,persistent[slot],persistent[slot]->buffer,{slot});
++    }
+ 
+     Pixal3dCondStats st;
+     st.views = V;
+@@ -234,9 +250,15 @@
+ 
+     // グラフを1本組んで走らせる小ヘルパ（入力の投入は alloc 後に upload() で行う）。
+     auto run_graph = [&](ggml_context* c, const std::vector<T*>& outs, const char* tag,
+-                         const std::function<void()>& upload) {
++                         int stage,int view,int first,int length,const std::function<void()>& upload) {
+         ggml_cgraph* g = ggml_new_graph_custom(c, 16384, false);
+         for (T* o : outs) ggml_build_forward_expand(g, o);
++        cond_trace(COND_GRAPH_BEGIN,g,dinov3.backend,{stage,view,first,length});
++        const auto dev=ggml_backend_get_device(dinov3.backend);
++        if(!dev) throw std::runtime_error("chunked conditioning: missing physical device");
++        for(int i=0;i<ggml_graph_n_nodes(g);++i)
++            if(!ggml_backend_dev_supports_op(dev,ggml_graph_node(g,i)))
++                throw std::runtime_error(std::string("chunked conditioning: unsupported node before allocation: ")+tag);
+         trellis_graph_dump(tag, g);
+         check_graph_supported(dinov3.backend, g, tag);
+         ggml_gallocr_t alloc = ggml_gallocr_new(ggml_backend_get_default_buffer_type(dinov3.backend));
+@@ -248,6 +270,7 @@
+         if (ggml_backend_graph_compute(dinov3.backend, g) != GGML_STATUS_SUCCESS)
+             throw std::runtime_error(std::string("compute failed: ") + tag);
+         ggml_backend_synchronize(dinov3.backend);
++        cond_trace(COND_GRAPH_DONE,g,dinov3.backend,{stage,view,first,length});
+         ggml_gallocr_free(alloc);
+     };
+ 
+@@ -278,6 +301,11 @@
+             }
+         }
+ 
++        for(int tap=0;tap<4;++tap) {
++            cond_trace(COND_TAPS,idx_lr[tap].data(),w_lr[tap].data(),{v,0,tap,NT,Hp,Wp});
++            cond_trace(COND_TAPS,idx_hr[tap].data(),w_hr[tap].data(),{v,1,tap,NT,Tn,Tn});
++        }
++
+         // ---- G1: DINOv3 -> global 累積, patch map を V_rows へ, lr tap 累積 ----
+         {
+             ggml_context* c = ggml_init({ meta, nullptr, true });
+@@ -295,7 +323,7 @@
+             T* wv = ggml_cpy(c, patches, V_rows);
+             T* wg = ggml_cpy(c, ggml_add(c, acc_glob, ggml_scale(c, glob, inv_v)), acc_glob);
+             T* wl = ggml_cpy(c, ggml_add(c, acc_lr, ggml_scale(c, z_lr, inv_v)), acc_lr);
+-            run_graph(c, {wv, wg, wl}, "pixal3d_cond_slat_chunked_dino", [&]() {
++            run_graph(c, {wv, wg, wl}, "pixal3d_cond_slat_chunked_dino", 1,v,0,NP, [&]() {
+                 ggml_backend_tensor_set(in.img, normed.data(), 0, normed.size() * 4);
+                 ggml_backend_tensor_set(in.cos, rcos.data(), 0, rcos.size() * 4);
+                 ggml_backend_tensor_set(in.sin, rsin.data(), 0, rsin.size() * 4);
+@@ -318,7 +346,7 @@
+                 T* dst = ggml_view_2d(c, P_pooled, TT, 128, P_pooled->nb[1], (size_t)half * 128 * P_pooled->nb[1]);
+                 T* wp = ggml_cpy(c, ggml_reshape_2d(c, e, TT, 128), dst);
+                 run_graph(c, {wp}, half == 0 ? "pixal3d_cond_slat_chunked_naf_enc0"
+-                                             : "pixal3d_cond_slat_chunked_naf_enc1", [&]() {
++                                             : "pixal3d_cond_slat_chunked_naf_enc1", 2+half,v,half,1, [&]() {
+                     ggml_backend_tensor_set(img, views[v].rgb_premult.data(), 0, views[v].rgb_premult.size() * 4);
+                 });
+                 ggml_free(c);
+@@ -328,7 +356,7 @@
+             T* img = ggml_new_tensor_4d(c, GGML_TYPE_F32, S, S, 3, 1); ggml_set_input(img);
+             T* pooled = naf_build_encoder(c, naf, img, S, Tn, nopts);        // [T,T,256]
+             T* wp = ggml_cpy(c, ggml_reshape_2d(c, pooled, TT, 256), P_pooled);
+-            run_graph(c, {wp}, "pixal3d_cond_slat_chunked_naf_enc", [&]() {
++            run_graph(c, {wp}, "pixal3d_cond_slat_chunked_naf_enc", 2,v,0,2, [&]() {
+                 ggml_backend_tensor_set(img, views[v].rgb_premult.data(), 0, views[v].rgb_premult.size() * 4);
+             });
+             ggml_free(c);
+@@ -360,7 +388,7 @@
+                                                       (size_t)d2 * b0 * Wp * Q_bm->nb[1]));
+             T* wk = ggml_cpy(c, qk.k_rows, ggml_view_2d(c, K_rows, 256, nb, K_rows->nb[1],
+                                                         (size_t)b0 * Wp * K_rows->nb[1]));
+-            run_graph(c, {wq, wk}, "pixal3d_cond_slat_chunked_naf_qk", [&]() {
++            run_graph(c, {wq, wk}, "pixal3d_cond_slat_chunked_naf_qk", 4,v,b0,nrow, [&]() {
+                 ggml_backend_tensor_set(rc, cs_.data(), 0, cs_.size() * 4);
+                 ggml_backend_tensor_set(rs, sn_.data(), 0, sn_.size() * 4);
+                 ggml_backend_tensor_set(bi, blk_local.data(), 0, blk_local.size() * sizeof(int32_t));
+@@ -381,7 +409,7 @@
+                     if (g >= lo && g < hi) { ci[t][(size_t)j] = (int32_t)(g - lo); cw[t][(size_t)j] = w_hr[t][(size_t)j]; any = true; }
+                 }
+             }
+-            if (!any) continue;   // この chunk に落ちる tap が無い
++            if (!any) { cond_trace(COND_CHUNK_SKIP,nullptr,nullptr,{5,v,blk0,nb}); continue; }   // この chunk に落ちる tap が無い
+ 
+             ggml_context* c = ggml_init({ meta, nullptr, true });
+             T* wi = ggml_new_tensor_1d(c, GGML_TYPE_I32, (int64_t)81 * nblk); ggml_set_input(wi);
+@@ -394,7 +422,7 @@
+                 z_hr = z_hr ? ggml_add(c, z_hr, th) : th;
+             }
+             T* wh = ggml_cpy(c, ggml_add(c, acc_hr, ggml_scale(c, z_hr, inv_v)), acc_hr);
+-            run_graph(c, {wh}, "pixal3d_cond_slat_chunked_naf_attn", [&]() {
++            run_graph(c, {wh}, "pixal3d_cond_slat_chunked_naf_attn", 5,v,blk0,nb, [&]() {
+                 ggml_backend_tensor_set(wi, win_idx.data(), 0, win_idx.size() * sizeof(int32_t));
+                 for (int t = 0; t < 4; ++t) {
+                     ggml_backend_tensor_set(gidx[t], ci[t].data(), 0, ci[t].size() * sizeof(int32_t));
+@@ -403,6 +431,7 @@
+             });
+             ggml_free(c);
+         }
++        cond_trace(COND_VIEW_DONE,nullptr,nullptr,{v});
+         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tv).count();
+         if (ms > st.view_ms_max) st.view_ms_max = ms;
+     }
+@@ -415,6 +444,7 @@
+         std::memcpy(dst, &hl[(size_t)k * D], D * sizeof(float));
+         std::memcpy(dst + D, &hh[(size_t)k * D], D * sizeof(float));
+     }
++    cond_trace(COND_END,nullptr,nullptr,{V,NT});
+     ggml_backend_buffer_free(bp); ggml_backend_buffer_free(bq); ggml_backend_buffer_free(bs);
+     ggml_free(cp); ggml_free(cq); ggml_free(cs);
+ 
+@@ -454,10 +484,17 @@
+     if (V == 0 || N3 == 0) return out;
+     if (naf.backend == nullptr || dinov3.backend == nullptr)
+         throw std::runtime_error("pixal3d_cond_slat_gpu: models must be loaded on a backend");
++    const auto device=ggml_backend_get_device(dinov3.backend);
++    if(!device || device!=ggml_backend_get_device(naf.backend) || !dinov3.buffer || !naf.buffer ||
++       !ggml_backend_dev_supports_buft(device,ggml_backend_buffer_get_type(dinov3.buffer)) ||
++       !ggml_backend_dev_supports_buft(device,ggml_backend_buffer_get_type(naf.buffer)))
++        throw std::runtime_error("pixal3d_cond_slat_gpu: incompatible physical device or weight buffer type");
+     // NAF 出力 [D, T*T] が 1 GiB を超える段（= naf_T > 512）、または明示指定があるときは
+     // 分割グラフ版へ。T<=512 の既存2段は検証済みの単一グラフ経路のままにする。
+-    if (prm.naf_block_chunk > 0 || (int64_t)Tn * Tn * D * 4 > (1LL << 30))
++    if (prm.naf_block_chunk > 0 || (int64_t)Tn * Tn * D * 4 > (1LL << 30)) {
++        cond_trace(COND_COORDS,coords ? coords->data() : nullptr,nullptr,{S,R,Tn,V,N3,coords ? 1 : 0});
+         return cond_slat_gpu_chunked(dinov3, naf, views, prm, sel, N3, stats);
++    }
+     if (naf.backend == nullptr || dinov3.backend == nullptr)
+         throw std::runtime_error("pixal3d_cond_slat_gpu: models must be loaded on a backend");
+ 
+--- a/src/trellis_cli.cpp
++++ b/src/trellis_cli.cpp
+@@ -33,6 +33,9 @@
+ #include <array>
+ #include <cmath>
+ #include <cstring>
++#include <stdexcept>
++#include <utility>
++#include "ggml-backend.h"
+ 
+ using std::vector;
+ static double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+@@ -479,12 +482,21 @@
+         vector<float> texlat;
+         {
+             trellis::Pixal3dCond c;
++            bool sparse_texture_cond = false;
+             { trellis::Model dino = trellis::Model::load(M + "/dinov3.gguf", gpu);
+               trellis::Model naf  = trellis::Model::load(M + "/pixal3d_naf.gguf", gpu);
+               trellis::Pixal3dSlatCondParams prm{1024, grid, 1024, mesh_scale};
+-              c = trellis::pixal3d_cond_slat(dino, naf, views1024, prm);
++              sparse_texture_cond = dino.backend && strncmp(ggml_backend_name(dino.backend),"Vulkan",6)==0;
++              if(sparse_texture_cond) {
++                  c = trellis::pixal3d_cond_slat_gpu(dino,naf,views1024,prm,nullptr,&shc);
++                  if(c.n_global!=5 || c.global.size()!=5ull*1024 || c.d_proj!=2048 ||
++                     c.proj.size()!=shc.size()*2048ull)
++                      throw std::runtime_error("texture conditioning: sparse output contract mismatch");
++              } else c = trellis::pixal3d_cond_slat(dino, naf, views1024, prm);
+               dino.free(); naf.free(); }
+-            vector<float> proj_sp = trellis::pixal3d_gather_proj(c.proj, grid, c.d_proj, shc);
++            // The chunked route already returns rows in shc order: never gather twice.
++            vector<float> proj_sp = sparse_texture_cond ? std::move(c.proj)
++                : trellis::pixal3d_gather_proj(c.proj, grid, c.d_proj, shc);
+             c.proj.clear(); c.proj.shrink_to_fit();
+             vector<float> neg_g(c.global.size(), 0.0f), neg_p(proj_sp.size(), 0.0f);
+ 

@@ -1,0 +1,42 @@
+--- /dev/null
++++ b/include/geometry_checkpoint.h
+@@ -0,0 +1,18 @@
++// Optional raw geometry preservation; no transforms, cleanup, or mutation.
++#pragma once
++#include "mesh_glb.h"
++#include <cmath>
++#include <cstdint>
++#include <filesystem>
++#include <stdexcept>
++#include <vector>
++namespace trellis {
++inline void write_geometry_checkpoint(const char* path,const std::vector<float>& verts,const std::vector<int32_t>& faces) {
++    if(!path || !*path || std::filesystem::exists(path) || verts.empty() || faces.empty() || verts.size()%3 || faces.size()%3)
++        throw std::runtime_error("geometry checkpoint: invalid/fresh output required");
++    for(float x:verts)if(!std::isfinite(x))throw std::runtime_error("geometry checkpoint: nonfinite position");
++    for(int32_t x:faces)if(x<0 || size_t(x)>=verts.size()/3)throw std::runtime_error("geometry checkpoint: invalid face");
++    if(!write_ply(path,verts.data(),int64_t(verts.size()/3),faces.data(),int64_t(faces.size()/3)))
++        throw std::runtime_error("geometry checkpoint: write failed");
++}
++}
+--- a/src/trellis_cli.cpp
++++ b/src/trellis_cli.cpp
+@@ -15,6 +15,7 @@
+ #include "stb_image_write.h"
+ #include "trellis_run.h"
+ #include "pixal3d_cond.h"
++#include "geometry_checkpoint.h"
+ #include "proj_grid.h"   // mat4_inverse_d: 入力段で transform_matrix の可逆性を確認する
+ #include "transforms_json.h"
+ #include "image_preprocess.h"
+@@ -467,6 +468,10 @@
+         mesh = trellis::dual_grid_to_mesh(so);
+     }
+     printf("      mesh V=%d F=%d\n", mesh.V(), mesh.F());
++    if(const char* checkpoint=std::getenv("TRELLIS_GEOMETRY_CHECKPOINT")) {
++        trellis::write_geometry_checkpoint(checkpoint,mesh.verts,mesh.faces);
++        printf("      GEOMETRY-ONLY / NOT FINAL raw decoded checkpoint -> %s\n",checkpoint);
++    }
+     { const int nh = trellis::fill_holes(mesh.verts, mesh.faces, 3e-2f);
+       if (nh) printf("      filled %d small holes -> V=%d F=%d\n", nh, mesh.V(), mesh.F()); }
+     printf("      shape decode (%.1fs)\n", now() - t_stage); t_stage = now();

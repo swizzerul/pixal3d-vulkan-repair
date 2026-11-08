@@ -1,12 +1,44 @@
 {
-  "native": {"repository": "raven38/pixal3d.cpp", "commit": "add368c651e91b5de942b0700e4352d52912865e"},
-  "ggml": {"repository": "pwilkin/ggml", "commit": "737e88f25d4f62254f3b7a726fd9663036cc94da"},
-  "spirv": {"repository": "KhronosGroup/SPIRV-Headers", "commit": "29981f65241605e08b0ede4cfeb999fe3b723c6a"},
-  "webp": {"repository": "webmproject/libwebp", "commit": "a4d7a715337ded4451fec90ff8ce79728e04126c"},
-  "sdk": {"version": "1.4.357.0", "file": "vulkansdk-windows-X64-1.4.357.0.exe", "bytes": 287971024, "sha256": "81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d"},
-  "runner_loader": {"version": "1.4.357.0", "file": "VulkanRT-X64-1.4.357.0-Components.zip", "bytes": 18134567, "sha256": "a14672efed15aafc7f5a16572d35cd3a3416eadf670aeee3cdf50ee32d5fbf83", "scope": "Ephemeral runner CPU/startup prerequisite only; never distributed in runtime bundles or installed on owner PC"},
+  "native": {
+    "repository": "raven38/pixal3d.cpp",
+    "commit": "add368c651e91b5de942b0700e4352d52912865e"
+  },
+  "ggml": {
+    "repository": "pwilkin/ggml",
+    "commit": "737e88f25d4f62254f3b7a726fd9663036cc94da"
+  },
+  "spirv": {
+    "repository": "KhronosGroup/SPIRV-Headers",
+    "commit": "29981f65241605e08b0ede4cfeb999fe3b723c6a"
+  },
+  "webp": {
+    "repository": "webmproject/libwebp",
+    "commit": "a4d7a715337ded4451fec90ff8ce79728e04126c"
+  },
+  "sdk": {
+    "version": "1.4.357.0",
+    "file": "vulkansdk-windows-X64-1.4.357.0.exe",
+    "bytes": 287971024,
+    "sha256": "81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d"
+  },
+  "runner_loader": {
+    "version": "1.4.357.0",
+    "file": "VulkanRT-X64-1.4.357.0-Components.zip",
+    "bytes": 18134567,
+    "sha256": "a14672efed15aafc7f5a16572d35cd3a3416eadf670aeee3cdf50ee32d5fbf83",
+    "scope": "Ephemeral runner CPU/startup prerequisite only; never distributed in runtime bundles or installed on owner PC"
+  },
   "patches": {
     "pixal3d-add368c-naf-vulkan-direct-conv.patch": "18693a320598125b6633b1b6facf7765c46b642948929de11822b89bae102d86",
-    "ggml-737e88f-vulkan-prealloc-y-invalidation.patch": "c6f30dac9c37e5ec3e1637b593e973c68aa87533444618c9363657905b2d13c8"
+    "ggml-737e88f-vulkan-prealloc-y-invalidation.patch": "c6f30dac9c37e5ec3e1637b593e973c68aa87533444618c9363657905b2d13c8",
+    "pixal3d-add368c-vulkan-chunked-texture.patch": "6d99586152367bebe34b6c3f35e119010b7836ede24a557b9dc430571a3630ae",
+    "pixal3d-add368c-raw-geometry-checkpoint.patch": "1cd1a165a077e96b1b86fdd5c50fae0283cf2c8a3f4e035fc90a9294df64f83c"
+  },
+  "control": {
+    "release": "experimental-42506628576",
+    "tools_commit": "4dad3ad815e7c1fe0d4e4b1e18490a99e6487a25",
+    "candidate_zip_sha256": "830fdb495613080ec0a5dfeaeff8293fae3a3c92a5c2782eb4a314c34661c712",
+    "bundle_manifest_sha256": "da4489f4f9defa5339cc62f296022b0acd7cecebb8b20825ba90d4803d87eea0",
+    "scope": "Existing verified two-patch candidate, retained and reused; not rebuilt"
   }
 }

@@ -11,15 +11,15 @@ def run(args,cwd=None):
     if p.returncode:raise RuntimeError(f'{args[0]} failed: {p.returncode}')
     return p.stdout
 if variant=='finish':
-    bundles={v:json.loads((release/(v+'-manifest.json')).read_text()) for v in ('baseline','candidate')}
+    bundles={v:json.loads((release/(v+'-manifest.json')).read_text()) for v in ('candidate',)}
     total=sum(p.stat().st_size for p in release.iterdir() if p.is_file())
     assert total<700_000_000,'Compact bundle budget exceeded'
     write(release/'build-manifest.json',{'repository':os.environ['GITHUB_REPOSITORY'],'tools_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],'pins':json.loads((tools/'pins.json').read_text()),'toolchain':json.loads((work/'records/toolchain.json').read_text(encoding='utf-8-sig')),'bundles':bundles,'checks':'startup/help, CPU ADD, NAF CPU selftest; no Vulkan/model execution on runner'})
     (release/'SHA256SUMS.txt').write_text(''.join(f'{sha(p)}  {p.name}\n' for p in sorted(release.iterdir()) if p.is_file() and p.name!='SHA256SUMS.txt'),encoding='ascii')
     sys.exit(0)
-assert variant in ('baseline','candidate')
+assert variant == 'candidate'
 out=work/('bundle-'+variant);out.mkdir()
-expected=['trellis-cli.exe','trellis-server.exe','repair-stage.exe','repair-probe.exe','trellis-test-naf.exe','ggml.dll','ggml-base.dll','ggml-cpu.dll','ggml-vulkan.dll']
+expected=['trellis-cli.exe','trellis-server.exe','repair-stage.exe','repair-probe.exe','repair-conditioning.exe','trellis-test-naf.exe','ggml.dll','ggml-base.dll','ggml-cpu.dll','ggml-vulkan.dll']
 for name in expected:
     found=list(build.rglob(name));assert len(found)==1,(name,found)
     shutil.copyfile(found[0],out/name)
@@ -48,6 +48,8 @@ checks['stage_help']=run([str(out/'repair-stage.exe'),'--help'],out)
 abi=run([str(out/'repair-probe.exe'),'--cpu'],out)
 checks['cpu_probe']=abi
 checks['naf_cpu_selftest']=run([str(out/'trellis-test-naf.exe'),'--selftest'],out)
+checks['conditioning_help']=run([str(out/'repair-conditioning.exe'),'--help'],out)
+checks['geometry_checkpoint']=run([str(out/'repair-conditioning.exe'),'geometry',str(work/'cpu-geometry-checkpoint')],out)
 manifest={'variant':variant,'source_commit':json.loads((tools/'pins.json').read_text())['native']['commit'],'patches_applied':[] if variant=='baseline' else list(json.loads((tools/'pins.json').read_text())['patches']), 'tools_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'files':{str(p.relative_to(out)).replace('\\','/'):{'sha256':sha(p),'bytes':p.stat().st_size} for p in sorted(out.rglob('*')) if p.is_file()},'imports':imports,'cpu_probe_abi':abi,'configuration':json.loads((work/'records/configure-options.json').read_text(encoding='utf-8-sig')),'toolchain':json.loads((work/'records/toolchain.json').read_text(encoding='utf-8-sig'))}
 manifest['startup_cpu_checks']={'exit_codes':{k:0 for k in checks},'output':checks}
 manifest['naf_compile_command']=json.loads((work/'records/naf-compile-command.json').read_text(encoding='utf-8-sig'))
