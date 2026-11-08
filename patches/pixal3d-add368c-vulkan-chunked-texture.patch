@@ -46,7 +46,7 @@
 +    static volatile uintptr_t observed = 0;
 +    observed = uintptr_t(a) ^ uintptr_t(b) ^ uintptr_t(values[0]) ^ uintptr_t(kind);
 +}
- 
+
  namespace trellis {
  using T = ggml_tensor;
 @@ -201,6 +209,8 @@
@@ -55,7 +55,7 @@
      chunk_blk = std::min(chunk_blk, nblk);
 +    cond_trace(COND_BEGIN,dinov3.backend,naf.backend,{S,R,Tn,V,NT,chunk_blk,nbrow,nblk});
 +    cond_trace(COND_SELECTION,sel.data(),nullptr,{NT});
- 
+
      // 永続バッファ: 大物は1本ずつ別バッファにする（1本が maxBufferSize を超えないように）。
      auto alloc_one = [&](ggml_context*& ctx, T*& t, int64_t n0, int64_t n1) {
 @@ -224,6 +234,12 @@
@@ -68,11 +68,11 @@
 +        ggml_set_name(persistent[slot],persistent_names[slot]);
 +        cond_trace(COND_PERSISTENT,persistent[slot],persistent[slot]->buffer,{slot});
 +    }
- 
+
      Pixal3dCondStats st;
      st.views = V;
 @@ -234,9 +250,15 @@
- 
+
      // グラフを1本組んで走らせる小ヘルパ（入力の投入は alloc 後に upload() で行う）。
      auto run_graph = [&](ggml_context* c, const std::vector<T*>& outs, const char* tag,
 -                         const std::function<void()>& upload) {
@@ -95,11 +95,11 @@
 +        cond_trace(COND_GRAPH_DONE,g,dinov3.backend,{stage,view,first,length});
          ggml_gallocr_free(alloc);
      };
- 
+
 @@ -278,6 +301,11 @@
              }
          }
- 
+
 +        for(int tap=0;tap<4;++tap) {
 +            cond_trace(COND_TAPS,idx_lr[tap].data(),w_lr[tap].data(),{v,0,tap,NT,Hp,Wp});
 +            cond_trace(COND_TAPS,idx_hr[tap].data(),w_hr[tap].data(),{v,1,tap,NT,Tn,Tn});
@@ -150,7 +150,7 @@
              }
 -            if (!any) continue;   // この chunk に落ちる tap が無い
 +            if (!any) { cond_trace(COND_CHUNK_SKIP,nullptr,nullptr,{5,v,blk0,nb}); continue; }   // この chunk に落ちる tap が無い
- 
+
              ggml_context* c = ggml_init({ meta, nullptr, true });
              T* wi = ggml_new_tensor_1d(c, GGML_TYPE_I32, (int64_t)81 * nblk); ggml_set_input(wi);
 @@ -394,7 +422,7 @@
@@ -177,7 +177,7 @@
 +    cond_trace(COND_END,nullptr,nullptr,{V,NT});
      ggml_backend_buffer_free(bp); ggml_backend_buffer_free(bq); ggml_backend_buffer_free(bs);
      ggml_free(cp); ggml_free(cq); ggml_free(cs);
- 
+
 @@ -454,10 +484,17 @@
      if (V == 0 || N3 == 0) return out;
      if (naf.backend == nullptr || dinov3.backend == nullptr)
@@ -196,7 +196,7 @@
 +    }
      if (naf.backend == nullptr || dinov3.backend == nullptr)
          throw std::runtime_error("pixal3d_cond_slat_gpu: models must be loaded on a backend");
- 
+
 --- a/src/trellis_cli.cpp
 +++ b/src/trellis_cli.cpp
 @@ -33,6 +33,9 @@
@@ -206,10 +206,10 @@
 +#include <stdexcept>
 +#include <utility>
 +#include "ggml-backend.h"
- 
+
  using std::vector;
  static double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
-@@ -479,12 +482,21 @@
+@@ -479,11 +482,20 @@
          vector<float> texlat;
          {
              trellis::Pixal3dCond c;
@@ -232,4 +232,3 @@
 +                : trellis::pixal3d_gather_proj(c.proj, grid, c.d_proj, shc);
              c.proj.clear(); c.proj.shrink_to_fit();
              vector<float> neg_g(c.global.size(), 0.0f), neg_p(proj_sp.size(), 0.0f);
- 
