@@ -28,6 +28,7 @@ jobs:
           if ($minutes -lt 1 -or $minutes -gt 120) { throw 'Invalid bounded timeout' }
           git init .
           if ($LASTEXITCODE) { throw 'git init failed' }
+          git config core.autocrlf false
           git remote add origin https://github.com/swizzerul/pixal3d-vulkan-repair.git
           git -c credential.helper= fetch --depth=1 origin $env:GITHUB_SHA
           if ($LASTEXITCODE) { throw 'exact tools fetch failed' }

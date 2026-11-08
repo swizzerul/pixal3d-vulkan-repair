@@ -17,6 +17,7 @@ function Invoke-Checked([string]$Exe,[string[]]$Arguments) {
 function Fetch-Pinned($Spec,[string]$Directory) {
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
     Invoke-Checked git @('init',$Directory)
+    Invoke-Checked git @('-C',$Directory,'config','core.autocrlf','false')
     Invoke-Checked git @('-C',$Directory,'remote','add','origin',('https://github.com/'+$Spec.repository+'.git'))
     Invoke-Checked git @('-C',$Directory,'-c','credential.helper=','fetch','--depth=1','origin',$Spec.commit)
     Invoke-Checked git @('-C',$Directory,'checkout','--detach','FETCH_HEAD')
@@ -63,6 +64,8 @@ $toolchain.sdk_certificate_thumbprint=$signature.SignerCertificate.Thumbprint
 $toolchain.sdk_exit=$process.ExitCode
 $toolchain.shader_compiler=(& "$sdkroot/Bin/glslc.exe" --version | Out-String)
 $toolchain | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$records/toolchain.json" -Encoding utf8
+Write-Host ($toolchain | ConvertTo-Json -Depth 8)
+Write-Host ($sdkmeta[0] | ConvertTo-Json -Depth 8)
 $native=Join-Path $work 'native'; $spirv=Join-Path $work 'spirv'; $webp=Join-Path $work 'webp'
 Fetch-Pinned $pins.native $native
 Fetch-Pinned $pins.ggml "$native/thirdparty/ggml"
@@ -71,7 +74,9 @@ Fetch-Pinned $pins.webp $webp
 $gitlink = (git -C $native ls-tree HEAD thirdparty/ggml)
 if ($gitlink -notmatch $pins.ggml.commit) { throw 'Native submodule pin mismatch' }
 foreach ($patch in $pins.patches.psobject.Properties) {
-    if ((Get-FileHash -LiteralPath "$tools/patches/$($patch.Name)" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $patch.Value) { throw 'Reviewed patch hash mismatch' }
+    $observed=(Get-FileHash -LiteralPath "$tools/patches/$($patch.Name)" -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Host "$($patch.Name): expected=$($patch.Value) actual=$observed"
+    if ($observed -ne $patch.Value) { throw 'Reviewed patch hash mismatch' }
 }
 $prefix=Join-Path $work 'spirv-prefix'
 Invoke-Checked cmake @('-S',$spirv,'-B',"$work/spirv-build",'-G','Ninja',"-DCMAKE_INSTALL_PREFIX=$prefix",'-DSPIRV_HEADERS_ENABLE_TESTS=OFF','-DSPIRV_HEADERS_ENABLE_INSTALL=ON')
