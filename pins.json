@@ -33,7 +33,8 @@
     "ggml-737e88f-vulkan-prealloc-y-invalidation.patch": "c6f30dac9c37e5ec3e1637b593e973c68aa87533444618c9363657905b2d13c8",
     "pixal3d-add368c-vulkan-chunked-texture.patch": "7986e15e54a5bd99a755099a86d46fb96224db629652ebcd5c93ca59fd386c57",
     "pixal3d-add368c-raw-geometry-checkpoint.patch": "1cd1a165a077e96b1b86fdd5c50fae0283cf2c8a3f4e035fc90a9294df64f83c",
-    "pixal3d-add368c-decoder-boundary-diagnostics.patch": "3f901dc4226739104e443a9eac247fa58974e771b00f231b2cd0e17a36ba8ede"
+    "pixal3d-add368c-decoder-boundary-diagnostics.patch": "3f901dc4226739104e443a9eac247fa58974e771b00f231b2cd0e17a36ba8ede",
+    "ggml-737e88f-vulkan-mmq-tail-bounds.patch": "1cb9cdeea72ff3f6bedadceb8916a4e2fed10439e428eb9ecf250b8758814e55"
   },
   "control": {
     "release": "experimental-42506628576",

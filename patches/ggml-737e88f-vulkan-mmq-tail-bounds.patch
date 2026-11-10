@@ -1,0 +1,13 @@
+--- a/src/ggml-vulkan/vulkan-shaders/mul_mmq.comp
++++ b/src/ggml-vulkan/vulkan-shaders/mul_mmq.comp
+@@ -243,7 +243,9 @@
+         pos_a_ib += BK_STEP;
+         pos_b_ib += BK_STEP;
+
+-        for (uint k_step = 0; k_step < BK_STEP; k_step++) {
++        // A is loaded only for valid K blocks. Never read its uninitialized tail:
++        // zero B does not neutralize a NaN scale from an absent A block.
++        for (uint k_step = 0; k_step < BK_STEP && block + k_step * BK < end_k; k_step++) {
+             // Load from shared into cache
+             [[unroll]] for (uint wsir = 0; wsir < WMITER; wsir++) {
+                 [[unroll]] for (uint cr = 0; cr < TM; cr++) {

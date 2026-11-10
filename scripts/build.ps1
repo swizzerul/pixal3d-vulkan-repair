@@ -131,6 +131,7 @@ foreach($patch in $pins.patches.psobject.Properties) {
     Invoke-Checked git @('-C',$target,'apply','--check',"$tools/patches/$($patch.Name)")
     Invoke-Checked git @('-C',$target,'apply',"$tools/patches/$($patch.Name)")
 }
+Invoke-Checked python @("$tools/scripts/check_mmq_tail.py","$native/thirdparty/ggml/src/ggml-vulkan/vulkan-shaders/mul_mmq.comp")
 Invoke-Checked cmake (@('--build',$build,'--verbose','--parallel','4','--target')+$targets)
 Invoke-Checked python @("$tools/scripts/package.py",'candidate',$work,$tools)
 Invoke-Checked python @("$tools/scripts/package.py",'finish',$work,$tools)
