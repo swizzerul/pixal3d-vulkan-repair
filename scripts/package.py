@@ -19,10 +19,15 @@ if variant=='finish':
     sys.exit(0)
 assert variant == 'candidate'
 out=work/('bundle-'+variant);out.mkdir()
-expected=['trellis-cli.exe','trellis-server.exe','repair-stage.exe','repair-probe.exe','repair-conditioning.exe','trellis-test-naf.exe','ggml.dll','ggml-base.dll','ggml-cpu.dll','ggml-vulkan.dll']
+expected=['trellis-cli.exe','trellis-server.exe','repair-stage.exe','repair-probe.exe','repair-conditioning.exe','repair-decoder.exe','trellis-test-naf.exe','ggml.dll','ggml-base.dll','ggml-cpu.dll','ggml-vulkan.dll']
 for name in expected:
     found=list(build.rglob(name));assert len(found)==1,(name,found)
     shutil.copyfile(found[0],out/name)
+# Linker PDBs match the exact optimized binaries; no private inputs or paths from the owner host.
+for name in expected:
+    symbols=list(build.rglob(Path(name).stem+'.pdb'))
+    assert len(symbols)==1,(name,symbols)
+    shutil.copyfile(symbols[0],out/symbols[0].name)
 notices=out/'notices';notices.mkdir()
 for key,src in [('native',work/'native'),('ggml',work/'native/thirdparty/ggml'),('webp',work/'webp'),('spirv',work/'spirv')]:
     for p in src.rglob('*'):
@@ -48,10 +53,16 @@ checks['stage_help']=run([str(out/'repair-stage.exe'),'--help'],out)
 abi=run([str(out/'repair-probe.exe'),'--cpu'],out)
 checks['cpu_probe']=abi
 checks['naf_cpu_selftest']=run([str(out/'trellis-test-naf.exe'),'--selftest'],out)
+checks['decoder_help']=run([str(out/'repair-decoder.exe'),'--help'],out)
+checks['decoder_serialization']=run([str(out/'repair-decoder.exe'),'selftest',str(work/'decoder-serializer-test')],out)
+error=subprocess.run([str(out/'repair-decoder.exe'),'exception-test'],cwd=out,capture_output=True,text=True)
+assert error.returncode==2 and 'intentional model-free exception diagnostic' in error.stderr and 'runtime_error' in error.stderr
+print(error.stderr,flush=True)
+checks['decoder_exception_expected_2']=error.stderr
 checks['conditioning_help']=run([str(out/'repair-conditioning.exe'),'--help'],out)
 checks['geometry_checkpoint']=run([str(out/'repair-conditioning.exe'),'geometry',str(work/'cpu-geometry-checkpoint')],out)
 manifest={'variant':variant,'source_commit':json.loads((tools/'pins.json').read_text())['native']['commit'],'patches_applied':[] if variant=='baseline' else list(json.loads((tools/'pins.json').read_text())['patches']), 'tools_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'files':{str(p.relative_to(out)).replace('\\','/'):{'sha256':sha(p),'bytes':p.stat().st_size} for p in sorted(out.rglob('*')) if p.is_file()},'imports':imports,'cpu_probe_abi':abi,'configuration':json.loads((work/'records/configure-options.json').read_text(encoding='utf-8-sig')),'toolchain':json.loads((work/'records/toolchain.json').read_text(encoding='utf-8-sig'))}
-manifest['startup_cpu_checks']={'exit_codes':{k:0 for k in checks},'output':checks}
+manifest['startup_cpu_checks']={'exit_codes':{k:(2 if k=='decoder_exception_expected_2' else 0) for k in checks},'output':checks}
 manifest['naf_compile_command']=json.loads((work/'records/naf-compile-command.json').read_text(encoding='utf-8-sig'))
 write(out/'bundle-manifest.json',manifest)
 archive=release/(variant+'-windows-x64.zip')

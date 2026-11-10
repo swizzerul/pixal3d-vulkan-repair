@@ -9,3 +9,6 @@ target_link_libraries(repair-conditioning PRIVATE trellis_core ggml-vulkan)
 if(MSVC)
   target_compile_definitions(trellis-test-naf PRIVATE _USE_MATH_DEFINES)
 endif()
+
+add_executable(repair-decoder "${CMAKE_CURRENT_LIST_DIR}/decoder.cpp")
+target_link_libraries(repair-decoder PRIVATE trellis_core)

@@ -106,8 +106,11 @@ Invoke-Checked cmake @('-S',$spirv,'-B',"$work/spirv-build",'-G','Ninja',"-DCMAK
 Invoke-Checked cmake @('--install',"$work/spirv-build")
 # Additive integration only; upstream algorithm sources remain unmodified in the control.
 Add-Content -LiteralPath "$native/CMakeLists.txt" -Value ('`nadd_subdirectory("'+($tools.Replace('\','/'))+'/drivers" "${CMAKE_BINARY_DIR}/repair-drivers")').Replace('`n',"`n") -Encoding utf8
+Copy-Item -LiteralPath "$tools/drivers/decoder_checkpoint.h" -Destination "$native/include/decoder_checkpoint.h"
 $build=Join-Path $work 'build'
 $options=@('-S',$native,'-B',$build,'-G','Ninja','-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=ON','-DCMAKE_EXPORT_COMPILE_COMMANDS=ON',
+    '-DCMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi','-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi',
+    '-DCMAKE_EXE_LINKER_FLAGS=/DEBUG:FULL /OPT:REF /OPT:ICF','-DCMAKE_SHARED_LINKER_FLAGS=/DEBUG:FULL /OPT:REF /OPT:ICF',
     '-DGGML_NATIVE=OFF','-DGGML_CPU=ON','-DGGML_VULKAN=ON','-DGGML_CUDA=OFF','-DGGML_HIP=OFF','-DGGML_METAL=OFF',
     '-DGGML_SYCL=OFF','-DGGML_WEBGPU=OFF','-DGGML_RPC=OFF','-DGGML_OPENMP=OFF','-DGGML_BUILD_TESTS=OFF','-DGGML_BUILD_EXAMPLES=OFF',
     '-DGGML_VULKAN_DEBUG=ON','-DPIXAL3D_GGML_PATCHES=OFF','-DTRELLIS_WEBP=ON',
@@ -121,7 +124,7 @@ $nafCommands=@($commands | Where-Object { $_.file -match '[/\\]test_naf\.cpp$' }
 if ($nafCommands.Count -ne 1 -or $nafCommands[0].command -notmatch '[/-]D_USE_MATH_DEFINES' -or $nafCommands[0].command -match '(?i)[/-]Zc:cmath') { throw 'NAF test compiler definition contract failed' }
 $nafCommands[0] | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$records/naf-compile-command.json" -Encoding utf8
 Write-Host ('Verified NAF compiler command: '+$nafCommands[0].command)
-$targets=@('trellis-cli','trellis-server','repair-stage','repair-probe','repair-conditioning','trellis-test-naf')
+$targets=@('trellis-cli','trellis-server','repair-stage','repair-probe','repair-conditioning','repair-decoder','trellis-test-naf')
 # Reuse the previously verified complete two-patch control; build only the new candidate.
 foreach($patch in $pins.patches.psobject.Properties) {
     $target = if($patch.Name.StartsWith('ggml-')) { "$native/thirdparty/ggml" } else { $native }

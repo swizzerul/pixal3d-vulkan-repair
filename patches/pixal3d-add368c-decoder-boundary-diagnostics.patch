@@ -1,0 +1,77 @@
+--- a/src/shape_decoder.cpp
++++ b/src/shape_decoder.cpp
+@@ -1,4 +1,5 @@
+ #include "shape_decoder.h"
++#include "decoder_checkpoint.h"
+ #include "sparse.h"
+ #include "trellis_model.h"
+ #include "graph_dump.h"
+@@ -140,6 +141,7 @@
+     // from_latent [32,N] -> [1024,N]
+     std::vector<float> h = linear_rows(m, latent, 32, N, "from_latent", 1024, false, kind);
+     stage_dump(kind, "from_latent", h, 1024, coords);
++    decoder_checkpoint::boundary("from-latent", h, 1024, coords.size());
+     struct Stage { int C, nblk, Cout, c2si; const char* s; };
+     const Stage stages[4] = { {1024,4,512,4,"0"}, {512,16,256,16,"1"}, {256,8,128,8,"2"}, {128,4,64,4,"3"} };
+     for (int si = 0; si < 4; ++si) {
+@@ -181,6 +183,7 @@
+
+ ShapeOut shape_decode(const Model& m, const std::vector<float>& latent,
+                       const std::vector<std::array<int,3>>& coords0, int resolution) {
++    decoder_checkpoint::begin(latent, coords0, resolution, m.arch);
+     ShapeOut so; so.coords = coords0; so.res = resolution;
+     so.feats7 = decode_unet(m, latent, 7, so.coords, nullptr, &so.subs);
+     return so;
+--- a/src/sparse.cpp
++++ b/src/sparse.cpp
+@@ -1,4 +1,5 @@
+ #include "sparse.h"
++#include "decoder_checkpoint.h"
+ #include "trellis_model.h"
+ #include "graph_dump.h"
+ #include "ggml.h"
+@@ -204,6 +205,7 @@
+         constexpr int kAttempts = 3;
+         for (int attempt = 0; attempt < kAttempts; ++attempt) {
+             subdiv = predict_subdiv();
++            decoder_checkpoint::subdivision(prefix, feats_in, Cin, coords, subdiv, attempt);
+             const size_t bad = std::count_if(subdiv.begin(), subdiv.end(),
+                                              [](float x) { return !std::isfinite(x); });
+             if (bad == 0) break;
+@@ -250,6 +252,7 @@
+     }
+     mstart[N] = (int32_t)gidx.size();
+     const int M = (int)nc.size();
++    decoder_checkpoint::children(prefix, nc, mask_used, gidx, mstart);
+     if (M == 0) throw std::runtime_error("c2s: subdivision produced no active voxels in " + prefix);
+     std::vector<int32_t> nnbr = build_neighbor_table(nc);
+     if (getenv("TRELLIS_DBG_MEM"))
+--- a/src/trellis_cli_main.cpp
++++ b/src/trellis_cli_main.cpp
+@@ -2,8 +2,10 @@
+ #include "trellis_args.h"
+ #include "trellis_run.h"
+ #include <cstdio>
++#include <exception>
++#include <typeinfo>
+
+-int main(int argc, char** argv) {
++static int run_main(int argc, char** argv) {
+     trellis::TrellisParams p;
+     if (!trellis::parse_args(argc, argv, p)) {
+         trellis::print_usage(argv[0], /*server=*/false);
+@@ -16,3 +18,14 @@
+     }
+     return trellis_run(p);
+ }
++
++int main(int argc, char** argv) {
++    try { return run_main(argc, argv); }
++    catch (const std::exception& e) {
++        fprintf(stderr, "[native-error] type=%s what=%s\n", typeid(e).name(), e.what());
++        return 2;
++    } catch (...) {
++        fputs("[native-error] non-std exception; pipeline stopped\n", stderr);
++        return 4;
++    }
++}
